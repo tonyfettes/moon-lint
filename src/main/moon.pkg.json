@@ -1,7 +1,7 @@
 {
   "is-main": true,
   "import": [
-    "username/hello/lib",
+    "tonyfettes/moon-lint/lint",
     "moonbitlang/x/sys",
     "moonbitlang/x/fs"
   ],

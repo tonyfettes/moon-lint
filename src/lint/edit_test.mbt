@@ -39,7 +39,7 @@ test "parse_rules" {
     #|  replace: |
     #|    for $binderDefinition in $rangeLower..<($rangeUpper) $forBody
     #|
-  let rules = @lib.parse_rules!(@encoding.encode(UTF8, rules))
+  let rules = @lint.parse_rules!(@encoding.encode(UTF8, rules))
   @json.inspect!(rules, content=[
     {
       "name": "suggested-for-in",
@@ -60,7 +60,7 @@ test "apply_edit" {
     #|     (#eq? @cond "true"))
     #|  replace: |
     #|    $body
-  let rules = @lib.parse_rules!(@encoding.encode(UTF8, rules))
+  let rules = @lint.parse_rules!(@encoding.encode(UTF8, rules))
   let source =
     #|fn main {
     #|  if true {
@@ -71,7 +71,7 @@ test "apply_edit" {
   let parser = @tree_sitter.Parser::new()
   let language = @tree_sitter_moonbit.language()
   parser.set_language(language)
-  let source = @lib.apply_edit!(
+  let source = @lint.apply_edit!(
     parser,
     language,
     rules[0],

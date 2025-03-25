@@ -42,8 +42,8 @@ fn main {
     let args = @sys.get_cli_args()
     let args = Arguments::parse(args)
     let ruleset = @fs.read_file_to_bytes!(args.ruleset_path)
-    let edits = @lib.parse_rules!(ruleset)
-    @lib.apply_dir!(args.source_path, edits, apply=args.apply)
+    let edits = @lint.parse_rules!(ruleset)
+    @lint.apply_dir!(args.source_path, edits, apply=args.apply)
   } catch {
     error => println("Error: \{error}")
   }
