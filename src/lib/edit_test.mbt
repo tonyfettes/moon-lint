@@ -50,27 +50,6 @@ test "parse_rules" {
 }
 
 ///|
-test "fill_captures" {
-  let replacement =
-    #|for $binderDefinition in $rangeLower..<($rangeUpper) $forBody
-  let captures = {
-    "binderDefinition": "i",
-    "rangeLower": "0",
-    "rangeUpper": "10",
-    "forBody": "{\n  println!(\"Hello, world!\")\n}",
-  }
-  let filled = @lib.fill_captures(replacement, captures)
-  inspect!(
-    filled,
-    content=
-      #|for i in 0..<(10) {
-      #|  println!("Hello, world!")
-      #|}
-    ,
-  )
-}
-
-///|
 test "apply_edit" {
   let rules =
     #|if-true:
@@ -92,7 +71,14 @@ test "apply_edit" {
   let parser = @tree_sitter.Parser::new()
   let language = @tree_sitter_moonbit.language()
   parser.set_language(language)
-  let source = @lib.apply_edit!(parser, language, rules[0], source)
+  let source = @lib.apply_edit!(
+    parser,
+    language,
+    rules[0],
+    source,
+    diagnostics=[],
+    apply=true,
+  )
   let source = @encoding.decoder(UTF8).decode!(source)
   inspect!(
     source,

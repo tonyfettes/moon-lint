@@ -3,7 +3,7 @@ struct Edit {
   name : String
   search : String
   replace : String
-} derive(Show)
+} derive(Show, ToJson)
 
 ///|
 pub fn parse_rules(source : Bytes) -> Array[Edit]! {
@@ -75,7 +75,7 @@ pub fn parse_rules(source : Bytes) -> Array[Edit]! {
 }
 
 ///|
-type! EditError {
+priv type! EditError {
   UnknownCapture(String)
   UnableToMergeCaptures(Int, Int)
   NoChange
@@ -238,6 +238,27 @@ fn fill_captures(
 }
 
 ///|
+test "fill_captures" {
+  let replacement =
+    #|for $binderDefinition in $rangeLower..<($rangeUpper) $forBody
+  let captures = {
+    "binderDefinition": "i",
+    "rangeLower": "0",
+    "rangeUpper": "10",
+    "forBody": "{\n  println!(\"Hello, world!\")\n}",
+  }
+  let filled = fill_captures(replacement, captures)
+  inspect!(
+    filled,
+    content=
+      #|for i in 0..<(10) {
+      #|  println!("Hello, world!")
+      #|}
+    ,
+  )
+}
+
+///|
 struct Match {
   node : @tree_sitter.Node
   captures : Map[String, String]
@@ -337,11 +358,20 @@ pub fn schedule(
 }
 
 ///|
+struct Diagnostic {
+  name : String
+  range : (@tree_sitter.Point, @tree_sitter.Point)
+  replace : String
+}
+
+///|
 pub fn apply_edit(
   parser : @tree_sitter.Parser,
   language : @tree_sitter.Language,
   edit : Edit,
-  source : Bytes
+  source : Bytes,
+  diagnostics~ : Array[Diagnostic],
+  apply~ : Bool = false
 ) -> Bytes! {
   let old_source = Set::new()
   let mut source = source
@@ -370,13 +400,26 @@ pub fn apply_edit(
       let start = offset + match_.node.start_byte()
       let end = offset + match_.node.end_byte()
       let replace = @encoding.encode(UTF8, buffer)
-      source = [..source[:start], ..replace, ..source[end:]]
-      let source_hash = source.hash()
-      if old_source.contains(source_hash) {
-        raise NoChange
+      if apply {
+        source = [..source[:start], ..replace, ..source[end:]]
+        let source_hash = source.hash()
+        if old_source.contains(source_hash) {
+          raise NoChange
+        }
+        offset += replace.length() - (end - start)
+        old_source.add(source.hash())
+      } else {
+        let start = match_.node.start_point()
+        let end = match_.node.end_point()
+        diagnostics.push({
+          name: edit.name,
+          range: (start, end),
+          replace: buffer,
+        })
       }
-      offset += replace.length() - (end - start)
-      old_source.add(source.hash())
+    }
+    if not(apply) {
+      break
     }
   }
   source
@@ -408,18 +451,39 @@ fn apply_file(
   edits : Array[Edit],
   apply~ : Bool = false
 ) -> Unit! {
-  println("Info: applying edits to \{path}")
   let mut source = @fs.read_file_to_bytes!(path)
   let language = @tree_sitter_moonbit.language()
   let parser = @tree_sitter.Parser::new()
   parser.set_language(language)
+  let diagnostics = []
   for edit in edits {
-    source = apply_edit!(parser, language, edit, source)
+    source = apply_edit!(parser, language, edit, source, diagnostics~, apply~)
   }
   if apply {
     @fs.write_bytes_to_file!(path, source)
   } else {
-    println(@encoding.decoder(UTF8).decode!(source))
+    let source = @encoding.decoder(UTF8).decode!(source)
+    let lines = source.split("\n").collect()
+    for diagnostic in diagnostics {
+      let (start, end) = diagnostic.range
+      let first_line_prefix = lines[start.row()].view(end_offset=start.column())
+      let lines = [
+          ..lines[start.row():end.row() + 1].map(fn(line) { "  │" + line }),
+        ]
+      let source_in_range = @string.concat(lines, separator="\n")
+      let replace = ([..first_line_prefix, ..diagnostic.replace] : String)
+        .split("\n")
+        .map(fn(line) { "  │" + line })
+        .collect()
+        |> @string.concat(separator="\n")
+      println(
+        $|\{path}:\{start.row() + 1}:\{start.column() + 1}: error: \{diagnostic.name}
+        $|\{source_in_range}
+        $|  note: to fix, use
+        $|\{replace}
+        ,
+      )
+    }
   }
 }
 
