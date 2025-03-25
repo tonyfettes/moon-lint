@@ -99,3 +99,14 @@ pub fn FixedArray::new[T](length : Int, value : () -> T) -> FixedArray[T] {
     array
   }
 }
+
+fn init {
+  loop a {
+    [] => {
+    }
+    [char, ..] as continue => {
+    }
+    [a, .. continue] => {
+    }
+  }
+}

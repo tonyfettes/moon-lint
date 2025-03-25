@@ -64,3 +64,21 @@ deprecated:
      (#match? @deprecated "^/// @alert deprecated\\s+(?<message>\".*\")"))
   replace: |
     #deprecated($message)
+
+linear-array-loop:
+  search: |
+    (loop_expression
+     (matrix_case_clause
+      (pattern
+       (simple_pattern
+        [
+         "_"
+         (array_pattern . "[" . "]" .)
+         (array_pattern . "[" (array_sub_pattern (pattern (simple_pattern (dot_dot)))) "]" .)
+        ]
+       ) @linear-array-loop
+      )
+     )
+    )
+  replace: |
+    The fix for this is not trivial.
