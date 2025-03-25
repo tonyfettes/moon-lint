@@ -3,7 +3,7 @@ struct Edit {
   name : String
   search : String
   replace : String
-} derive(Show, ToJson)
+} derive(Show)
 
 ///|
 pub fn parse_rules(source : Bytes) -> Array[Edit]! {
@@ -187,7 +187,7 @@ fn handle_predicates(
 }
 
 ///|
-pub fn fill_captures(
+fn fill_captures(
   replacement : String,
   captures_texts : Map[String, String]
 ) -> String {
@@ -319,7 +319,7 @@ pub fn schedule(
     let merged_captures = merge_captures!(captures, source)
     let predicates = query.predicates_for_pattern(match_.pattern_index)
     if not(handle_predicates!(merged_captures, predicates, properties)) {
-      println("Info: skipping match")
+      // println("Info: skipping match")
       continue
     }
     match captures[edit.name] {
@@ -371,7 +371,6 @@ pub fn apply_edit(
       let end = offset + match_.node.end_byte()
       let replace = @encoding.encode(UTF8, buffer)
       source = [..source[:start], ..replace, ..source[end:]]
-      println("source: \{@encoding.decoder(UTF8).decode!(source)}")
       let source_hash = source.hash()
       if old_source.contains(source_hash) {
         raise NoChange
@@ -384,7 +383,7 @@ pub fn apply_edit(
 }
 
 ///|
-struct MoonModJson {
+priv struct MoonModJson {
   target : String
 }
 
@@ -466,43 +465,5 @@ pub fn apply_dir(
     }
   } else {
     apply_dir!(path, edits, apply)
-  }
-}
-
-///|
-pub struct Arguments {
-  ruleset_path : String
-  source_path : String
-  apply : Bool
-} derive(Show)
-
-///|
-pub fn Arguments::parse(args : Array[String]) -> Arguments {
-  struct Args {
-    mut ruleset : String
-    mut source : String
-    mut apply : Bool
-  } derive(Show)
-  let parsed : Args = { ruleset: "", source: "", apply: false }
-  loop args[1:] {
-    ["--fix", .. args] => {
-      parsed.apply = true
-      continue args
-    }
-    [ruleset, source, .. args] => {
-      parsed.ruleset = ruleset
-      parsed.source = source
-      continue args
-    }
-    [] => break
-    _ => {
-      println("Usage: \{args[0]} <ruleset_path> <source_path> [--fix]")
-      @sys.exit(1)
-    }
-  }
-  Arguments::{
-    ruleset_path: parsed.ruleset,
-    source_path: parsed.source,
-    apply: parsed.apply,
   }
 }
