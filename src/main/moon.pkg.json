@@ -1,0 +1,14 @@
+{
+  "is-main": true,
+  "import": [
+    "username/hello/lib",
+    "moonbitlang/x/sys",
+    "moonbitlang/x/fs"
+  ],
+  "link": {
+    "native": {
+      "cc": "clang",
+      "cc-flags": "-g -fsanitize=address"
+    }
+  }
+}
