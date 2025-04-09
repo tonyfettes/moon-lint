@@ -3,13 +3,12 @@
   "version": "0.1.0",
   "deps": {
     "moonbitlang/x": "0.4.22",
-    "tonyfettes/tree_sitter": {
-      "path": "../moonbit-tree-sitter"
-    },
+    "tonyfettes/tree_sitter": "0.2.0",
     "tonyfettes/tree_sitter_moonbit": "0.1.5",
     "tonyfettes/tree_sitter_yaml": "0.1.5",
     "yj-qin/regexp": "0.3.4",
-    "tonyfettes/tree_sitter_query": "0.1.5"
+    "tonyfettes/tree_sitter_query": "0.1.5",
+    "tonyfettes/uv": "0.1.0"
   },
   "readme": "README.md",
   "repository": "",

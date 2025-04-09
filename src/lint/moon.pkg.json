@@ -5,8 +5,8 @@
     "tonyfettes/tree_sitter",
     "tonyfettes/tree_sitter_moonbit",
     "tonyfettes/tree_sitter_yaml",
-    "moonbitlang/x/encoding",
-    "yj-qin/regexp"
+    "yj-qin/regexp",
+    "tonyfettes/encoding"
   ],
   "warn-list": "-15+15"
 }

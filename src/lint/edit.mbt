@@ -10,11 +10,9 @@ pub fn parse_rules(source : Bytes) -> Array[Edit]! {
   let parser = @tree_sitter.Parser::new()
   let yaml = @tree_sitter_yaml.language()
   parser.set_language(yaml)
-  let source_tree = parser.parse_bytes(
-    None,
-    source,
-    encoding=@tree_sitter.InputEncoding::UTF8,
-  )
+  let source_tree = parser
+    .parse_bytes(None, source, encoding=@encoding.Encoding::UTF8)
+    .or_error!(Failure("Parse error"))
   let source_root = source_tree.root_node()
   let query_source =
     #|(block_mapping_pair
@@ -377,11 +375,9 @@ pub fn apply_edit(
   let mut source = source
   let mut offset = 0
   while true {
-    let source_tree = parser.parse_bytes(
-      None,
-      source,
-      encoding=@tree_sitter.InputEncoding::UTF8,
-    )
+    let source_tree = parser
+      .parse_bytes(None, source, encoding=@encoding.UTF8)
+      .or_error!(Failure("Parse error"))
     let source_root = source_tree.root_node()
     let search = if edit.search.contains("@\{edit.name}") {
       edit.search
