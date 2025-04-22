@@ -1,19 +1,38 @@
 ///|
-struct Arguments {
-  ruleset_path : String
-  source_path : String
-  apply : Bool
+enum Arguments {
+  Foreign(pkg~ : String)
+  Lint(ruleset~ : String, source~ : String, apply~ : Bool)
 } derive(Show)
 
 ///|
-fn Arguments::parse(args : Array[String]) -> Arguments {
+type! ArgumentsError {
+  MissingArgument(command~ : String)
+  MissingCommand
+  UnrecognizedCommand(String)
+  UnrecognizedArgument(command~ : String, String)
+  ExtraArgument(command~ : String, ArrayView[String])
+}
+
+///|
+fn Arguments::parse_foreign(
+  args : ArrayView[String]
+) -> Arguments!ArgumentsError {
+  match args {
+    [] => raise ArgumentsError::MissingArgument(command="foreign")
+    [pkg] => Arguments::Foreign(pkg~)
+    [_, .. args] => raise ArgumentsError::ExtraArgument(command="foreign", args)
+  }
+}
+
+///|
+fn Arguments::parse_lint(args : ArrayView[String]) -> Arguments!ArgumentsError {
   struct Args {
     mut ruleset : String
     mut source : String
     mut apply : Bool
   } derive(Show)
   let parsed : Args = { ruleset: "", source: "", apply: false }
-  loop args[1:] {
+  loop args[:] {
     ["--fix", .. args] => {
       parsed.apply = true
       continue args
@@ -24,15 +43,23 @@ fn Arguments::parse(args : Array[String]) -> Arguments {
       continue args
     }
     [] => break
-    _ => {
-      println("Usage: \{args[0]} <ruleset_path> <source_path> [--fix]")
-      @sys.exit(1)
-    }
+    [argument, ..] =>
+      raise ArgumentsError::UnrecognizedArgument(command="lint", argument)
   }
-  Arguments::{
-    ruleset_path: parsed.ruleset,
-    source_path: parsed.source,
-    apply: parsed.apply,
+  Arguments::Lint(
+    ruleset=parsed.ruleset,
+    source=parsed.source,
+    apply=parsed.apply,
+  )
+}
+
+///|
+fn Arguments::parse(args : Array[String]) -> Arguments!ArgumentsError {
+  match args {
+    [] => raise ArgumentsError::MissingCommand
+    ["foreign", .. args] => Arguments::parse_foreign!(args)
+    ["lint", .. args] => Arguments::parse_lint!(args)
+    [command, ..] => raise ArgumentsError::UnrecognizedCommand(command)
   }
 }
 
@@ -40,10 +67,15 @@ fn Arguments::parse(args : Array[String]) -> Arguments {
 fn main {
   try {
     let args = @sys.get_cli_args()
-    let args = Arguments::parse(args)
-    let ruleset = @fs.read_file_to_bytes!(args.ruleset_path)
-    let edits = @lint.parse_rules!(ruleset)
-    @lint.apply_dir!(args.source_path, edits, apply=args.apply)
+    let args = Arguments::parse!(args)
+    match args {
+      Foreign(pkg~) => @foreign.check_package!(pkg)
+      Lint(ruleset~, source~, apply~) => {
+        let ruleset = @fs.read_file_to_bytes!(ruleset)
+        let edits = @lint.parse_rules!(ruleset)
+        @lint.apply_dir!(source, edits, apply~)
+      }
+    }
   } catch {
     error => println("Error: \{error}")
   }

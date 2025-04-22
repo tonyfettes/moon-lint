@@ -491,14 +491,14 @@ pub fn apply_dir(
 ) -> Unit! {
   fn apply_dir(path : String, edits : Array[Edit], apply : Bool) -> Unit! {
     if @fs.is_dir!(path) {
-      if path == ".mooncakes" || path.ends_with("/.mooncakes") {
+      if path == ".mooncakes" || path.has_suffix("/.mooncakes") {
         return
       }
       for entry in @fs.read_dir!(path) {
         apply_dir!("\{path}/\{entry}", edits, apply)
       }
     } else if @fs.is_file!(path) {
-      if not(path.ends_with(".mbt")) {
+      if not(path.has_suffix(".mbt")) {
         return
       }
       apply_file!(path, edits, apply~)

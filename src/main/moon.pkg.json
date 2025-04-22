@@ -3,7 +3,8 @@
   "import": [
     "tonyfettes/moon-lint/lint",
     "moonbitlang/x/sys",
-    "moonbitlang/x/fs"
+    "moonbitlang/x/fs",
+    "tonyfettes/moon-lint/foreign"
   ],
   "link": {
     "native": {

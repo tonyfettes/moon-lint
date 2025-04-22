@@ -1,52 +1,71 @@
 ///|
-let c : @tree_sitter.Language = @tree_sitter_c.language()
+let c_language : @tree_sitter.Language = @tree_sitter_c.language()
 
 ///|
-enum Pointer {
-  Own(Type)
-  Ref(Type)
-  Plain(Type)
-} derive(Show)
+priv enum CPointer {
+  Own(CType)
+  Ref(CType)
+} derive(Show, Eq, Hash)
 
 ///|
-impl ToJson for Pointer with to_json(self) {
+impl ToJson for CPointer with to_json(self) {
   match self {
     Own(name) => "\{name} own *"
     Ref(name) => "\{name} ref *"
-    Plain(name) => "\{name} *"
   }
 }
 
 ///|
-enum Type {
+priv enum CType {
+  Void
+  Int32
+  UInt32
+  Int64
+  UInt64
+  Float
+  Double
   Typedef(String)
-  Pointer(Pointer)
-}
+  Pointer(CPointer)
+} derive(Eq, Hash)
 
 ///|
-impl Show for Type with output(self, logger) {
+impl Show for CType with output(self, logger) {
   match self {
+    Void => logger.write_string("void")
+    Int32 => logger.write_string("int32_t")
+    UInt32 => logger.write_string("uint32_t")
+    Int64 => logger.write_string("int64_t")
+    UInt64 => logger.write_string("uint64_t")
+    Float => logger.write_string("float")
+    Double => logger.write_string("double")
     Typedef(string) => logger.write_string(string)
     Pointer(pointer) => logger.write_object(pointer)
   }
 }
 
 ///|
-impl ToJson for Type with to_json(self) {
+impl ToJson for CType with to_json(self) {
   match self {
+    Void => "void".to_json()
+    Int32 => "int32_t".to_json()
+    UInt32 => "uint32_t".to_json()
+    Int64 => "int64_t".to_json()
+    UInt64 => "uint64_t".to_json()
+    Float => "float".to_json()
+    Double => "double".to_json()
     Typedef(string) => string.to_json()
     Pointer(pointer) => pointer.to_json()
   }
 }
 
 ///|
-struct Parameter {
+priv struct CParameter {
   name : String?
-  type_ : Type
+  type_ : CType
 } derive(Show)
 
 ///|
-impl ToJson for Parameter with to_json(self) {
+impl ToJson for CParameter with to_json(self) {
   let object = Map::new()
   if self.name is Some(name) {
     object["name"] = name.to_json()
@@ -56,15 +75,16 @@ impl ToJson for Parameter with to_json(self) {
 }
 
 ///|
-struct Function {
+priv struct CFunction {
   static_ : Bool
   name : String
-  type_ : Type
-  parameters : Array[Parameter]
+  type_ : CType
+  parameters : Array[CParameter]
+  body : @tree_sitter.Node
 } derive(Show)
 
 ///|
-impl ToJson for Function with to_json(self) {
+impl ToJson for CFunction with to_json(self) {
   let object = Map::new()
   if self.static_ {
     object["static"] = True
@@ -80,19 +100,15 @@ impl ToJson for Function with to_json(self) {
 }
 
 ///|
-type! ParseError {
+priv type! CParseError {
   MissingType
   MissingDeclarator
-  UnrecognizedDeclarator(String)
   MissingParameters
   MissingBody
 } derive(Show)
 
 ///|
-fn Function::parse(
-  source : String,
-  node : @tree_sitter.Node
-) -> Function! {
+fn CFunction::parse(source : String, node : @tree_sitter.Node) -> CFunction! {
   let mut static_ = false
   for child in node.children() {
     if child.type_() is "storage_class_specifier" {
@@ -105,12 +121,24 @@ fn Function::parse(
       }
     }
   }
-  let type_node = node.child_by_field_name("type").or_error!(MissingType)
+  let type_node = node
+    .child_by_field_name("type")
+    .or_error!(CParseError::MissingType)
   let type_ = source.view(
     start_offset=type_node.start_byte(),
     end_offset=type_node.end_byte(),
   )
-  let mut type_ = Typedef(type_.to_string())
+  let type_ = type_.to_string()
+  let mut type_ = match type_ {
+    "void" => CType::Void
+    "int32_t" => CType::Int32
+    "uint32_t" => CType::UInt32
+    "int64_t" => CType::Int64
+    "uint64_t" => CType::UInt64
+    "float" => CType::Float
+    "double" => CType::Double
+    type_ => CType::Typedef(type_)
+  }
   let mut is_const = false
   if type_node.prev_sibling() is Some(prev_sibling) &&
     prev_sibling.type_() == "type_qualifier" {
@@ -138,9 +166,9 @@ fn Function::parse(
     .or_error!(MissingDeclarator)
   let declarator_node = if declarator_node.type_() is "pointer_declarator" {
     if is_const {
-      type_ = Pointer(Pointer::Ref(type_))
+      type_ = Pointer(CPointer::Ref(type_))
     } else {
-      type_ = Pointer(Pointer::Own(type_))
+      type_ = Pointer(CPointer::Own(type_))
     }
     declarator_node
     .child_by_field_name("declarator")
@@ -160,15 +188,24 @@ fn Function::parse(
     .next_named_sibling()
     .or_error!(MissingParameters)
   for parameter_node in parameters_node.named_children() {
-    println("parameter_node: \{parameter_node}")
     let type_node = parameter_node
       .child_by_field_name("type")
-      .or_error!(MissingType)
+      .or_error!(CParseError::MissingType)
     let type_ = source.view(
       start_offset=type_node.start_byte(),
       end_offset=type_node.end_byte(),
     )
-    let mut type_ = Typedef(type_.to_string())
+    let type_ = type_.to_string()
+    let mut type_ = match type_ {
+      "void" => CType::Void
+      "int32_t" => CType::Int32
+      "uint32_t" => CType::UInt32
+      "int64_t" => CType::Int64
+      "uint64_t" => CType::UInt64
+      "float" => CType::Float
+      "double" => CType::Double
+      type_ => CType::Typedef(type_)
+    }
     let mut is_const = false
     if type_node.prev_sibling() is Some(prev_sibling) &&
       prev_sibling.type_() == "type_qualifier" {
@@ -192,13 +229,12 @@ fn Function::parse(
       }
     }
     let declarator_node = parameter_node.child_by_field_name("declarator")
-    println("declarator_node: \{declarator_node}")
     let name = if declarator_node is Some(declarator_node) {
       if declarator_node.type_() is "pointer_declarator" {
         if is_const {
-          type_ = Pointer(Pointer::Ref(type_))
+          type_ = Pointer(CPointer::Ref(type_))
         } else {
-          type_ = Pointer(Pointer::Own(type_))
+          type_ = Pointer(CPointer::Own(type_))
         }
         let declarator_node = declarator_node
           .child_by_field_name("declarator")
@@ -220,137 +256,53 @@ fn Function::parse(
     } else {
       None
     }
-    println("name: \{name}")
-    parameters.push(Parameter::{ name, type_ })
+    parameters.push(CParameter::{ name, type_ })
   }
-  println("parameters: \{parameters}")
-  let body = node.child_by_field_name("body").or_error!(MissingBody)
-  let query_source =
-    #|(call_expression
-    #| function: (identifier) @function
-    #| arguments: (argument_list (identifier) @argument))
-  let query = @tree_sitter.Query::new!(c, query_source)
-  let query_cursor = @tree_sitter.QueryCursor::new()
-  query_cursor.exec(query, body)
-  while query_cursor.next_match() is Some(matches) {
-    for capture in matches.captures {
-      let capture_name = query.capture_name_for_id(capture.index)
-      println("capture_name: \{capture_name}")
-      let capture_node = capture.node
-      let capture_source = source.view(
-        start_offset=capture_node.start_byte(),
-        end_offset=capture_node.end_byte(),
-      )
-      println("capture_source: \{capture_source}")
-    }
-  }
-  for body_child in body.children() {
-    println("body_child: \{body_child}")
-  }
-  { static_, name: [..name], type_, parameters }
+  let body = node
+    .child_by_field_name("body")
+    .or_error!(CParseError::MissingBody)
+  { static_, name: [..name], type_, parameters, body }
 }
 
 ///|
-struct TranslationUnit {
-  functions : Array[Function]
+priv struct CTranslationUnit {
+  functions : Array[CFunction]
 } derive(Show, ToJson)
 
 ///|
-fn TranslationUnit::parse(
+fn CTranslationUnit::parse(
   source : String,
   node : @tree_sitter.Node
-) -> TranslationUnit! {
+) -> CTranslationUnit! {
   let functions = []
   for child in node.children() {
     if child.type_() is "function_definition" {
-      functions.push(Function::parse!(source, child))
+      functions.push(CFunction::parse!(source, child))
     }
   }
-  TranslationUnit::{ functions, }
+  CTranslationUnit::{ functions, }
 }
 
 ///|
-test {
+test "c" {
   let parser = @tree_sitter.Parser::new()
-  parser.set_language(c)
+  parser.set_language(c_language)
   let source =
     #|int32_t
-    #|moonbit_uv_loop_alive(uv_loop_t *loop) {
-    #|  int alive = uv_loop_alive(loop);
-    #|  moonbit_decref(loop);
-    #|  return alive;
-    #|}
-    #|
-    #|static inline void
-    #|moonbit_uv_fs_finalize(void *object) {
-    #|  moonbit_uv_fs_t *fs = (moonbit_uv_fs_t *)object;
-    #|  if (fs->fs.data) {
-    #|    moonbit_decref(fs->fs.data);
-    #|  }
-    #|  if (fs->bufs_base) {
-    #|    moonbit_decref(fs->bufs_base);
-    #|  }
-    #|  uv_fs_req_cleanup(&fs->fs);
-    #|}
-    #|
-    #|
-    #|int32_t
-    #|moonbit_uv_fs_write(
-    #|  uv_loop_t *loop,
-    #|  moonbit_uv_fs_t *fs,
-    #|  uv_file file,
-    #|  moonbit_bytes_t *bufs_base,
-    #|  int32_t *bufs_offset,
-    #|  int32_t *bufs_length,
-    #|  int64_t offset,
-    #|  moonbit_uv_fs_cb_t *cb
-    #|) {
-    #|  int bufs_size = (((struct moonbit_object*)(bufs_base) - 1)->meta & (((uint32_t)1 << 28) - 1));
-    #|                                                 ;
-    #|  uv_buf_t *bufs = malloc(sizeof(uv_buf_t) * bufs_size);
-    #|  for (int i = 0; i < bufs_size; i++) {
-    #|    bufs[i] =
-    #|      uv_buf_init((char *)bufs_base[i] + bufs_offset[i], bufs_length[i]);
-    #|  }
-    #|  moonbit_uv_fs_set_data(fs, cb);
-    #|  moonbit_uv_fs_set_bufs(fs, bufs_base);
-    #|  int result =
-    #|    uv_fs_write(loop, &fs->fs, file, bufs, bufs_size, offset, moonbit_uv_fs_cb);
-    #|  free(bufs);
-    #|  moonbit_decref(loop);
-    #|  moonbit_decref(bufs_offset);
-    #|  moonbit_decref(bufs_length);
-    #|  return result;
+    #|moonbit_uv_is_closing(uv_handle_t *handle) {
+    #|  int32_t is_closing = uv_is_closing(handle);
+    #|  moonbit_decref(handle);
+    #|  return is_closing;
     #|}
   let tree = parser.parse_string(None, source).unwrap()
   let root_node = tree.root_node()
-  let translation_unit = TranslationUnit::parse!(source, root_node)
+  let translation_unit = CTranslationUnit::parse!(source, root_node)
   @json.inspect!(translation_unit, content={
     "functions": [
       {
-        "name": "moonbit_uv_loop_alive",
+        "name": "moonbit_uv_is_closing",
         "type": "int32_t",
-        "parameters": [{ "name": "loop", "type": "uv_loop_t own *" }],
-      },
-      {
-        "static": true,
-        "name": "moonbit_uv_fs_finalize",
-        "type": "void",
-        "parameters": [{ "name": "object", "type": "void own *" }],
-      },
-      {
-        "name": "moonbit_uv_fs_write",
-        "type": "int32_t",
-        "parameters": [
-          { "name": "loop", "type": "uv_loop_t own *" },
-          { "name": "fs", "type": "moonbit_uv_fs_t own *" },
-          { "name": "file", "type": "uv_file" },
-          { "name": "bufs_base", "type": "moonbit_bytes_t own *" },
-          { "name": "bufs_offset", "type": "int32_t own *" },
-          { "name": "bufs_length", "type": "int32_t own *" },
-          { "name": "offset", "type": "int64_t" },
-          { "name": "cb", "type": "moonbit_uv_fs_cb_t own *" },
-        ],
+        "parameters": [{ "name": "handle", "type": "uv_handle_t own *" }],
       },
     ],
   })
