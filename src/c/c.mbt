@@ -258,6 +258,11 @@ fn CFunction::parse(source : String, node : @tree_sitter.Node) -> CFunction! {
     }
     parameters.push(CParameter::{ name, type_ })
   }
+  let parameters = if parameters is [{ name: None, type_: Void }] {
+    []
+  } else {
+    parameters
+  }
   let body = node
     .child_by_field_name("body")
     .or_error!(CParseError::MissingBody)

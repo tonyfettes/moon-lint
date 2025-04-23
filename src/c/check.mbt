@@ -184,6 +184,7 @@ impl @json.FromJson for MoonBitPackage with from_json(json, path) {
 
 ///|
 pub fn check_package(pkg : String) -> Unit! {
+  println("Checking package: \{pkg}")
   let moon_pkg_path = pkg + "/moon.pkg.json"
   try {
     if not(@fs.is_file!(moon_pkg_path)) {
@@ -201,9 +202,11 @@ pub fn check_package(pkg : String) -> Unit! {
     let stub_path = pkg + "/" + stub
     let stub_text = @fs.read_file_to_string!(stub_path)
     if stub_text.contains("MOONBIT_FFI_EXPORT") {
+      println("Collecting stub: \{stub_path}")
       c_source.write_string(stub_text)
     }
   }
+  let c_source = c_source.to_string()
   let moonbit_source = StringBuilder::new()
   for entry in @fs.read_dir!(pkg) {
     if not(entry.has_suffix(".mbt")) {
@@ -211,8 +214,11 @@ pub fn check_package(pkg : String) -> Unit! {
     }
     let entry_path = pkg + "/" + entry
     let entry_text = @fs.read_file_to_string!(entry_path)
+    println("Collecting MoonBit source: \{entry_path}")
     moonbit_source.write_string(entry_text)
   }
+  let moonbit_source = moonbit_source.to_string()
+  check!(c=c_source, moonbit=moonbit_source)
 }
 
 ///|
