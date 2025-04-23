@@ -1,6 +1,6 @@
 ///|
 enum Arguments {
-  Foreign(pkg~ : String)
+  C(pkg~ : String)
   Lint(ruleset~ : String, source~ : String, apply~ : Bool)
 } derive(Show)
 
@@ -19,7 +19,7 @@ fn Arguments::parse_foreign(
 ) -> Arguments!ArgumentsError {
   match args {
     [] => raise ArgumentsError::MissingArgument(command="foreign")
-    [pkg] => Arguments::Foreign(pkg~)
+    [pkg] => Arguments::C(pkg~)
     [_, .. args] => raise ArgumentsError::ExtraArgument(command="foreign", args)
   }
 }
@@ -69,7 +69,7 @@ fn main {
     let args = @sys.get_cli_args()
     let args = Arguments::parse!(args)
     match args {
-      Foreign(pkg~) => @foreign.check_package!(pkg)
+      C(pkg~) => @c.check_package!(pkg)
       Lint(ruleset~, source~, apply~) => {
         let ruleset = @fs.read_file_to_bytes!(ruleset)
         let edits = @lint.parse_rules!(ruleset)
