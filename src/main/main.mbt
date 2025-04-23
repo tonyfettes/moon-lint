@@ -6,21 +6,21 @@ enum Arguments {
 
 ///|
 type! ArgumentsError {
+  MissingExecName
   MissingArgument(command~ : String)
   MissingCommand
   UnrecognizedCommand(String)
   UnrecognizedArgument(command~ : String, String)
   ExtraArgument(command~ : String, ArrayView[String])
-}
+} derive(Show)
 
 ///|
-fn Arguments::parse_foreign(
-  args : ArrayView[String]
-) -> Arguments!ArgumentsError {
+fn Arguments::parse_c(args : ArrayView[String]) -> Arguments!ArgumentsError {
+  let command = "c"
   match args {
-    [] => raise ArgumentsError::MissingArgument(command="foreign")
+    [] => raise ArgumentsError::MissingArgument(command~)
     [pkg] => Arguments::C(pkg~)
-    [_, .. args] => raise ArgumentsError::ExtraArgument(command="foreign", args)
+    [_, .. args] => raise ArgumentsError::ExtraArgument(command~, args)
   }
 }
 
@@ -56,10 +56,11 @@ fn Arguments::parse_lint(args : ArrayView[String]) -> Arguments!ArgumentsError {
 ///|
 fn Arguments::parse(args : Array[String]) -> Arguments!ArgumentsError {
   match args {
-    [] => raise ArgumentsError::MissingCommand
-    ["foreign", .. args] => Arguments::parse_foreign!(args)
-    ["lint", .. args] => Arguments::parse_lint!(args)
-    [command, ..] => raise ArgumentsError::UnrecognizedCommand(command)
+    [] => raise ArgumentsError::MissingExecName
+    [_] => raise ArgumentsError::MissingCommand
+    [_, "c", .. args] => Arguments::parse_c!(args)
+    [_, "lint", .. args] => Arguments::parse_lint!(args)
+    [_, command, ..] => raise ArgumentsError::UnrecognizedCommand(command)
   }
 }
 
