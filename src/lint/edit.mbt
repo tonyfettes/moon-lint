@@ -6,6 +6,11 @@ struct Edit {
 } derive(Show, ToJson)
 
 ///|
+priv type! EditParseError {
+  Missing(String)
+} derive(Show)
+
+///|
 pub fn parse_rules(source : Bytes) -> Array[Edit]! {
   let parser = @tree_sitter.Parser::new()
   let yaml = @tree_sitter_yaml.language()
@@ -44,20 +49,17 @@ pub fn parse_rules(source : Bytes) -> Array[Edit]! {
       captures_texts[query.capture_name_for_id(capture.index)] = text
     }
     guard captures_texts["name"] is Some(name) else {
-      println("Error: missing name")
-      @sys.exit(1)
+      raise EditParseError::Missing("name")
     }
     guard captures_texts["search"] is Some(search) else {
-      println("Error: missing search")
-      @sys.exit(1)
+      raise EditParseError::Missing("search")
     }
     let search : String = match search.trim_space() {
       ['|', '\n', .. search] => [..search]
       search => search
     }
     guard captures_texts["replace"] is Some(replace) else {
-      println("Error: missing replace")
-      @sys.exit(1)
+      raise EditParseError::Missing("replace")
     }
     let replace : String = match replace.trim_space() {
       ['|', '\n', .. replace] => [..replace]
@@ -75,6 +77,7 @@ pub fn parse_rules(source : Bytes) -> Array[Edit]! {
 ///|
 priv type! EditError {
   UnknownCapture(String)
+  MultipleCapture(String)
   UnableToMergeCaptures(Int, Int)
   NoChange
   UnknownFileType(String)
@@ -188,7 +191,7 @@ fn handle_predicates(
 fn fill_captures(
   replacement : String,
   captures_texts : Map[String, String]
-) -> String {
+) -> String!EditError {
   let buffer = StringBuilder::new()
   replace~: loop replacement.view() {
     ['$', .. replace] => {
@@ -205,10 +208,7 @@ fn fill_captures(
                 buffer.write_char(char)
                 continue replace~ replace
               }
-              None => {
-                println("Error: unknown capture: \{name}")
-                @sys.exit(1)
-              }
+              None => raise UnknownCapture(name.to_string())
             }
           }
         replace => {
@@ -217,10 +217,7 @@ fn fill_captures(
               buffer.write_string(value)
               continue replace~ replace
             }
-            None => {
-              println("Error: unknown capture: \{name}")
-              @sys.exit(1)
-            }
+            None => raise UnknownCapture(name.to_string())
           }
           continue replace~ replace
         }
@@ -245,7 +242,7 @@ test "fill_captures" {
     "rangeUpper": "10",
     "forBody": "{\n  println!(\"Hello, world!\")\n}",
   }
-  let filled = fill_captures(replacement, captures)
+  let filled = fill_captures!(replacement, captures)
   inspect!(
     filled,
     content=
@@ -344,10 +341,7 @@ pub fn schedule(
     match captures[edit.name] {
       Some([node]) =>
         filtered.push({ node, captures: merged_captures, predicates })
-      Some(_) => {
-        println("Error: multiple captures for \{edit.name}")
-        @sys.exit(1)
-      }
+      Some(_) => raise MultipleCapture(edit.name)
       None => continue
     }
   }
@@ -392,7 +386,7 @@ pub fn apply_edit(
       break
     }
     for match_ in matches {
-      let buffer = fill_captures(edit.replace, match_.captures)
+      let buffer = fill_captures!(edit.replace, match_.captures)
       let start = offset + match_.node.start_byte()
       let end = offset + match_.node.end_byte()
       let replace = @encoding.encode(UTF8, buffer)
