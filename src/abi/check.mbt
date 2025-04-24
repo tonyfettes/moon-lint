@@ -65,7 +65,7 @@ fn TypeChecker::check_type(
       self.check_type!(moonbit~, c~, borrow~)
     (moonbit, c, _) => {
       println("check_type: moonbit = \{moonbit}, c = \{c}")
-      if (self.moonbit_to_c[moonbit] is Some(old_c_type) && old_c_type != c) {
+      if self.moonbit_to_c[moonbit] is Some(old_c_type) && old_c_type != c {
         println("check_type: old_c_type = \{old_c_type}")
         raise MismatchedType(c~, moonbit~)
       } else {
@@ -219,7 +219,7 @@ pub fn check_package(pkg : String) -> Unit! {
     let stub_path = pkg + "/" + stub
     let stub_text = @fs.read_file_to_string!(stub_path)
     if stub_text.contains("MOONBIT_FFI_EXPORT") {
-      let lines = stub_text.split("\n").collect()
+      let lines = stub_text.split("\n").collect().map(fn(x) { x.to_string() })
       let mut first_ffi_line = 0
       for i in 0..<lines.length() {
         let line = lines[i]
@@ -241,7 +241,7 @@ pub fn check_package(pkg : String) -> Unit! {
       let command = "gcc -E -CC \{commented_path} -I /Users/haoxiang/Library/MoonBit/include -I \{pkg} -o \{preprocessed_path}"
       let _ = system([..@encoding.encode(UTF8, command), 0])
       let stub_text = @fs.read_file_to_string!(preprocessed_path)
-      let stub_text = stub_text.split(separator).drop(1).collect()[0]
+      let stub_text = stub_text.split(separator).drop(1).collect()[0].to_string()
       c_source.write_string(stub_text)
     }
   }

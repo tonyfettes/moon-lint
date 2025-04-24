@@ -4,14 +4,12 @@ let c_language : @tree_sitter.Language = @tree_sitter_c.language()
 ///|
 priv enum CPointer {
   Own(CType)
-  Ref(CType)
 } derive(Show, Eq, Hash)
 
 ///|
 impl ToJson for CPointer with to_json(self) {
   match self {
     Own(name) => "\{name} own *"
-    Ref(name) => "\{name} ref *"
   }
 }
 
@@ -74,7 +72,7 @@ impl ToJson for CParameter with to_json(self) {
     object["name"] = name.to_json()
   }
   object["type"] = self.type_.to_json()
-  Object(object)
+  Json::object(object)
 }
 
 ///|
@@ -90,7 +88,7 @@ priv struct CFunction {
 impl ToJson for CFunction with to_json(self) {
   let object = Map::new()
   if self.static_ {
-    object["static"] = True
+    object["static"] = Json::boolean(true)
   }
   object["name"] = self.name.to_json()
   object["type"] = self.type_.to_json()
@@ -99,7 +97,7 @@ impl ToJson for CFunction with to_json(self) {
     parameters.push(parameter.to_json())
   }
   object["parameters"] = parameters.to_json()
-  Object(object)
+  Json::object(object)
 }
 
 ///|
