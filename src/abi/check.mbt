@@ -4,7 +4,7 @@ priv type! CheckError {
   MissingC(String)
   MismatchedArity(moonbit~ : MoonBitFunction, c~ : CFunction)
   MismatchedType(moonbit~ : MoonBitType, c~ : CType)
-  MismatchedReturnType(moonbit~ : MoonBitReturnType, c~ : CType)
+  MismatchedReturnType(String, moonbit~ : MoonBitReturnType, c~ : CType)
   MismatchedParameterType(String, moonbit~ : MoonBitParameter, c~ : CParameter)
   DuplicatedCFunction(String)
 } derive(Show)
@@ -21,8 +21,8 @@ fn FuncChecker::new() -> FuncChecker {
 
 ///|
 priv struct TypeChecker {
-  moonbit_to_c : Map[String, String]
-  c_to_moonbit : Map[String, String]
+  moonbit_to_c : Map[MoonBitType, CType]
+  c_to_moonbit : Map[CType, MoonBitType]
 }
 
 ///|
@@ -57,36 +57,44 @@ fn TypeChecker::check_type(
     (UInt64, UInt64, _) => ()
     (Float, Float, _) => ()
     (Double, Double, _) => ()
-    (Typedef(moonbit_type_name), Pointer(Own(Typedef(c_type_name))), false)
-    | (Typedef(moonbit_type_name), Pointer(Ref(Typedef(c_type_name))), true) =>
-      if (
-          self.moonbit_to_c[moonbit_type_name] is Some(old_c_type) &&
-          old_c_type != c_type_name
-        ) ||
-        (
-          self.c_to_moonbit[c_type_name] is Some(old_moonbit_type) &&
-          old_moonbit_type != moonbit_type_name
-        ) {
+    (Unit | Bool | Int | UInt | Int64 | UInt64 | Float | Double, _, _) =>
+      raise MismatchedType(c~, moonbit~)
+    (Bytes, MoonBitBytes, _) => ()
+    (Closure(_), Pointer(Own(_)), _) => ()
+    (FixedArray(moonbit), Pointer(Own(c)), borrow) =>
+      self.check_type!(moonbit~, c~, borrow~)
+    (moonbit, c, _) => {
+      println("check_type: moonbit = \{moonbit}, c = \{c}")
+      if (self.moonbit_to_c[moonbit] is Some(old_c_type) && old_c_type != c) {
+        println("check_type: old_c_type = \{old_c_type}")
         raise MismatchedType(c~, moonbit~)
       } else {
-        self.moonbit_to_c[moonbit_type_name] = c_type_name
-        self.c_to_moonbit[c_type_name] = moonbit_type_name
+        self.moonbit_to_c[moonbit] = c
+        self.c_to_moonbit[c] = moonbit
       }
-    _ => raise MismatchedType(c~, moonbit~)
+    }
   }
 }
 
 ///|
 fn TypeChecker::check_return_type(
   self : TypeChecker,
+  name : String,
   moonbit~ : MoonBitReturnType,
   c~ : CType,
   borrow~ : Bool = false
 ) -> Unit! {
+  println("check_return_type: name = \{name}, moonbit = \{moonbit}, c = \{c}")
   match (moonbit, c, borrow) {
     (Void, Void, _) => ()
-    (Type(moonbit), c, borrow) => self.check_type!(moonbit~, c~, borrow~)
-    _ => raise MismatchedReturnType(c~, moonbit~)
+    (Type(moonbit), c, borrow) =>
+      try {
+        self.check_type!(moonbit~, c~, borrow~)
+      } catch! {
+        MismatchedType(c~, moonbit~) =>
+          raise MismatchedReturnType(name, c~, moonbit=Type(moonbit))
+      }
+    _ => raise MismatchedReturnType(name, c~, moonbit~)
   }
 }
 
@@ -107,12 +115,17 @@ fn Checker::check(
   for moonbit in moonbit.functions {
     guard moonbit.body is C(linkage) else { continue }
     guard self.func.abi_to_c[linkage] is Some(c) else {
-      raise MissingC(linkage)
+      println("Missing C implementation for \{linkage}")
+      continue
     }
     guard moonbit.parameters.length() == c.parameters.length() else {
       raise MismatchedArity(c~, moonbit~)
     }
-    self.type_.check_return_type!(moonbit=moonbit.return_type, c=c.type_)
+    self.type_.check_return_type!(
+      linkage,
+      moonbit=moonbit.return_type,
+      c=c.type_,
+    )
     for i in 0..<moonbit.parameters.length() {
       let moonbit = moonbit.parameters[i]
       let c = c.parameters[i]
@@ -183,6 +196,10 @@ impl @json.FromJson for MoonBitPackage with from_json(json, path) {
 }
 
 ///|
+#borrow(command)
+extern "c" fn system(command : Bytes) -> Int = "system"
+
+///|
 pub fn check_package(pkg : String) -> Unit! {
   println("Checking package: \{pkg}")
   let moon_pkg_path = pkg + "/moon.pkg.json"
@@ -202,7 +219,29 @@ pub fn check_package(pkg : String) -> Unit! {
     let stub_path = pkg + "/" + stub
     let stub_text = @fs.read_file_to_string!(stub_path)
     if stub_text.contains("MOONBIT_FFI_EXPORT") {
-      println("Collecting stub: \{stub_path}")
+      let lines = stub_text.split("\n").collect()
+      let mut first_ffi_line = 0
+      for i in 0..<lines.length() {
+        let line = lines[i]
+        if line.contains("MOONBIT_FFI_EXPORT") {
+          first_ffi_line = i
+          break
+        }
+      }
+      let separator = "/* moon-lint */"
+      let lines = [
+          ..lines[:first_ffi_line],
+          separator,
+          ..lines[first_ffi_line:],
+        ]
+      @fs.create_dir?("/tmp/moon-lint/abi") |> ignore()
+      let commented_path = "/tmp/moon-lint/abi/\{stub}.comment.c"
+      @fs.write_string_to_file!(commented_path, lines.join("\n"))
+      let preprocessed_path = "/tmp/moon-lint/abi/\{stub}.preprocessed"
+      let command = "gcc -E -CC \{commented_path} -I /Users/haoxiang/Library/MoonBit/include -I \{pkg} -o \{preprocessed_path}"
+      let _ = system([..@encoding.encode(UTF8, command), 0])
+      let stub_text = @fs.read_file_to_string!(preprocessed_path)
+      let stub_text = stub_text.split(separator).drop(1).collect()[0]
       c_source.write_string(stub_text)
     }
   }

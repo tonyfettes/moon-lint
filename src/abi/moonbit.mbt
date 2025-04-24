@@ -12,6 +12,7 @@ priv enum MoonBitType {
   Float
   Double
   Error
+  Bytes
   FixedArray(MoonBitType)
   Tuple(Array[MoonBitType])
   Typedef(String)
@@ -66,6 +67,7 @@ impl Show for MoonBitType with output(self, logger) {
     Float => logger.write_string("Float")
     Double => logger.write_string("Double")
     Error => logger.write_string("Error")
+    Bytes => logger.write_string("Bytes")
     FixedArray(type_) => logger.write_string("FixedArray[\{type_}]")
     Tuple(types) => {
       logger.write_string("(")
@@ -150,6 +152,11 @@ fn MoonBitType::parse(
   source : String,
   node : @tree_sitter.Node
 ) -> MoonBitType! {
+  if source
+    .view(start_offset=node.start_byte(), end_offset=node.end_byte())
+    .has_prefix("@c") {
+    println("node: \{node}")
+  }
   if node.type_() is "type" {
     return MoonBitType::parse!(
       source,
@@ -178,21 +185,12 @@ fn MoonBitType::parse(
         "qualified_type_identifier",
       )
     }
-    let identifier_node = qualified_type_identifier_node
-      .child(0)
-      .or_error!(
-        MoonBitParseError::Missing(
-          source~,
-          node=qualified_type_identifier_node,
-          "identifier",
-        ),
-      )
-    let identifier = source.view(
-      start_offset=identifier_node.start_byte(),
-      end_offset=identifier_node.end_byte(),
+    let qualified_identifier = source.view(
+      start_offset=qualified_type_identifier_node.start_byte(),
+      end_offset=qualified_type_identifier_node.end_byte(),
     )
-    let identifier = identifier.to_string()
-    return match (identifier, type_arguments_node) {
+    let qualified_identifier = qualified_identifier.to_string()
+    return match (qualified_identifier, type_arguments_node) {
       ("Unit", None) => MoonBitType::Unit
       ("Bool", None) => MoonBitType::Bool
       ("Int", None) => MoonBitType::Int
@@ -201,6 +199,8 @@ fn MoonBitType::parse(
       ("UInt64", None) => MoonBitType::UInt64
       ("Float", None) => MoonBitType::Float
       ("Double", None) => MoonBitType::Double
+      ("Error", None) => MoonBitType::Error
+      ("Bytes", None) => MoonBitType::Bytes
       ("FixedArray", Some(type_arguments_node)) => {
         let type_arguments = []
         for type_argument_node in type_arguments_node.children() {
@@ -443,11 +443,17 @@ fn MoonBitFunction::parse(
     }
   }
   guard function_identifier_node is Some(function_identifier_node) else {
-    raise Missing(source~, node~, "function identifier")
+    raise MoonBitParseError::Missing(source~, node~, "function identifier")
   }
   let function_identifier_node = function_identifier_node
     .child(0)
-    .or_error!(Missing(source~, node=function_identifier_node, "identifier"))
+    .or_error!(
+      MoonBitParseError::Missing(
+        source~,
+        node=function_identifier_node,
+        "identifier",
+      ),
+    )
   let name = source
     .view(
       start_offset=function_identifier_node.start_byte(),
@@ -521,7 +527,13 @@ fn MoonBitFunction::parse(
   let body = if external_linkage_node is Some(external_linkage_node) {
     let linkage_string_node = external_linkage_node
       .named_child(0)
-      .or_error!(Missing(source~, node=external_linkage_node, "linkage_string"))
+      .or_error!(
+        MoonBitParseError::Missing(
+          source~,
+          node=external_linkage_node,
+          "linkage_string",
+        ),
+      )
     let linkage_string = source.view(
       start_offset=linkage_string_node.start_byte(),
       end_offset=linkage_string_node.end_byte(),
@@ -529,12 +541,16 @@ fn MoonBitFunction::parse(
     let linkage_string = linkage_string.to_string()
     if linkage_string is ("\"C\"" | "\"c\"") {
       guard external_source_node is Some(external_source_node) else {
-        raise Missing(source~, node~, "external source")
+        raise MoonBitParseError::Missing(source~, node~, "external source")
       }
       let external_source_node = external_source_node
         .child(0)
         .or_error!(
-          Missing(source~, node=external_source_node, "external source"),
+          MoonBitParseError::Missing(
+            source~,
+            node=external_source_node,
+            "external source",
+          ),
         )
       let external_source = source.view(
         start_offset=external_source_node.start_byte() + 1,
@@ -554,7 +570,13 @@ fn MoonBitFunction::parse(
   } else if external_source_node is Some(external_source_node) {
     let external_source_node = external_source_node
       .child(0)
-      .or_error!(Missing(source~, node=external_source_node, "external source"))
+      .or_error!(
+        MoonBitParseError::Missing(
+          source~,
+          node=external_source_node,
+          "external source",
+        ),
+      )
     let external_source = source.view(
       start_offset=external_source_node.start_byte() + 1,
       end_offset=external_source_node.end_byte() - 1,

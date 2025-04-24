@@ -24,6 +24,7 @@ priv enum CType {
   UInt64
   Float
   Double
+  MoonBitBytes
   Typedef(String)
   Pointer(CPointer)
 } derive(Eq, Hash)
@@ -38,6 +39,7 @@ impl Show for CType with output(self, logger) {
     UInt64 => logger.write_string("uint64_t")
     Float => logger.write_string("float")
     Double => logger.write_string("double")
+    MoonBitBytes => logger.write_string("moonbit_bytes_t")
     Typedef(string) => logger.write_string(string)
     Pointer(pointer) => logger.write_object(pointer)
   }
@@ -53,6 +55,7 @@ impl ToJson for CType with to_json(self) {
     UInt64 => "uint64_t".to_json()
     Float => "float".to_json()
     Double => "double".to_json()
+    MoonBitBytes => "moonbit_bytes_t".to_json()
     Typedef(string) => string.to_json()
     Pointer(pointer) => pointer.to_json()
   }
@@ -101,14 +104,63 @@ impl ToJson for CFunction with to_json(self) {
 
 ///|
 priv type! CParseError {
-  MissingType
-  MissingDeclarator
-  MissingParameters
-  MissingBody
-} derive(Show)
+  Missing(source~ : String, node~ : @tree_sitter.Node, String)
+}
+
+///|
+impl Show for CParseError with output(self, logger) {
+  match self {
+    Missing(source~, node~, type_) => {
+      let view = source.view(
+        start_offset=node.start_byte(),
+        end_offset=node.end_byte(),
+      )
+      logger.write_string("Missing \{type_}: \{view} \{node}")
+    }
+  }
+}
+
+///|
+fn CType::parse(source : String, node : @tree_sitter.Node) -> CType {
+  let type_ = source.view(
+    start_offset=node.start_byte(),
+    end_offset=node.end_byte(),
+  )
+  let type_ = type_.to_string()
+  match type_ {
+    "void" => CType::Void
+    "int32_t" => CType::Int32
+    "uint32_t" => CType::UInt32
+    "int64_t" => CType::Int64
+    "uint64_t" => CType::UInt64
+    "float" => CType::Float
+    "double" => CType::Double
+    "moonbit_bytes_t" => CType::MoonBitBytes
+    type_ => CType::Typedef(type_)
+  }
+}
 
 ///|
 fn CFunction::parse(source : String, node : @tree_sitter.Node) -> CFunction! {
+  fn strip_declarator!(
+    type_ : CType,
+    declarator_node : @tree_sitter.Node
+  ) -> (CType, @tree_sitter.Node) {
+    if declarator_node.type_() is "pointer_declarator" {
+      let type_ = Pointer(CPointer::Own(type_))
+      strip_declarator!(
+        type_,
+        declarator_node
+        .child_by_field_name("declarator")
+        .or_error!(
+          CParseError::Missing(source~, node=declarator_node, "declarator"),
+        ),
+      )
+    } else {
+      (type_, declarator_node)
+    }
+  }
+
   let mut static_ = false
   for child in node.children() {
     if child.type_() is "storage_class_specifier" {
@@ -123,22 +175,8 @@ fn CFunction::parse(source : String, node : @tree_sitter.Node) -> CFunction! {
   }
   let type_node = node
     .child_by_field_name("type")
-    .or_error!(CParseError::MissingType)
-  let type_ = source.view(
-    start_offset=type_node.start_byte(),
-    end_offset=type_node.end_byte(),
-  )
-  let type_ = type_.to_string()
-  let mut type_ = match type_ {
-    "void" => CType::Void
-    "int32_t" => CType::Int32
-    "uint32_t" => CType::UInt32
-    "int64_t" => CType::Int64
-    "uint64_t" => CType::UInt64
-    "float" => CType::Float
-    "double" => CType::Double
-    type_ => CType::Typedef(type_)
-  }
+    .or_error!(CParseError::Missing(source~, node~, "type"))
+  let type_ = CType::parse(source, type_node)
   let mut is_const = false
   if type_node.prev_sibling() is Some(prev_sibling) &&
     prev_sibling.type_() == "type_qualifier" {
@@ -163,22 +201,13 @@ fn CFunction::parse(source : String, node : @tree_sitter.Node) -> CFunction! {
   }
   let declarator_node = node
     .child_by_field_name("declarator")
-    .or_error!(MissingDeclarator)
-  let declarator_node = if declarator_node.type_() is "pointer_declarator" {
-    if is_const {
-      type_ = Pointer(CPointer::Ref(type_))
-    } else {
-      type_ = Pointer(CPointer::Own(type_))
-    }
-    declarator_node
-    .child_by_field_name("declarator")
-    .or_error!(MissingDeclarator)
-  } else {
-    declarator_node
-  }
+    .or_error!(CParseError::Missing(source~, node~, "declarator"))
+  let (type_, declarator_node) = strip_declarator!(type_, declarator_node)
   let declarator_node = declarator_node
     .child_by_field_name("declarator")
-    .or_error!(MissingDeclarator)
+    .or_error!(
+      CParseError::Missing(source~, node=declarator_node, "declarator"),
+    )
   let name = source.view(
     start_offset=declarator_node.start_byte(),
     end_offset=declarator_node.end_byte(),
@@ -186,26 +215,14 @@ fn CFunction::parse(source : String, node : @tree_sitter.Node) -> CFunction! {
   let parameters = []
   let parameters_node = declarator_node
     .next_named_sibling()
-    .or_error!(MissingParameters)
+    .or_error!(
+      CParseError::Missing(source~, node=declarator_node, "parameters"),
+    )
   for parameter_node in parameters_node.named_children() {
     let type_node = parameter_node
       .child_by_field_name("type")
-      .or_error!(CParseError::MissingType)
-    let type_ = source.view(
-      start_offset=type_node.start_byte(),
-      end_offset=type_node.end_byte(),
-    )
-    let type_ = type_.to_string()
-    let mut type_ = match type_ {
-      "void" => CType::Void
-      "int32_t" => CType::Int32
-      "uint32_t" => CType::UInt32
-      "int64_t" => CType::Int64
-      "uint64_t" => CType::UInt64
-      "float" => CType::Float
-      "double" => CType::Double
-      type_ => CType::Typedef(type_)
-    }
+      .or_error!(CParseError::Missing(source~, node=parameter_node, "type"))
+    let type_ = CType::parse(source, type_node)
     let mut is_const = false
     if type_node.prev_sibling() is Some(prev_sibling) &&
       prev_sibling.type_() == "type_qualifier" {
@@ -229,34 +246,32 @@ fn CFunction::parse(source : String, node : @tree_sitter.Node) -> CFunction! {
       }
     }
     let declarator_node = parameter_node.child_by_field_name("declarator")
-    let name = if declarator_node is Some(declarator_node) {
+    let parameter = if declarator_node is Some(declarator_node) {
       if declarator_node.type_() is "pointer_declarator" {
-        if is_const {
-          type_ = Pointer(CPointer::Ref(type_))
-        } else {
-          type_ = Pointer(CPointer::Own(type_))
-        }
-        let declarator_node = declarator_node
-          .child_by_field_name("declarator")
-          .or_error!(MissingDeclarator)
+        let (type_, declarator_node) = strip_declarator!(type_, declarator_node)
+        // let declarator_node = declarator_node
+        //   .child_by_field_name("declarator")
+        //   .or_error!(
+        //     CParseError::Missing(source~, node=declarator_node, "declarator"),
+        //   )
         let name = source.view(
           start_offset=declarator_node.start_byte(),
           end_offset=declarator_node.end_byte(),
         )
-        Some(name.to_string())
+        { name: Some(name.to_string()), type_ }
       } else if declarator_node.type_() is "abstract_pointer_declarator" {
-        None
+        { name: None, type_ }
       } else {
         let name = source.view(
           start_offset=declarator_node.start_byte(),
           end_offset=declarator_node.end_byte(),
         )
-        Some(name.to_string())
+        { name: Some(name.to_string()), type_ }
       }
     } else {
-      None
+      { name: None, type_ }
     }
-    parameters.push(CParameter::{ name, type_ })
+    parameters.push(parameter)
   }
   let parameters = if parameters is [{ name: None, type_: Void }] {
     []
@@ -265,7 +280,7 @@ fn CFunction::parse(source : String, node : @tree_sitter.Node) -> CFunction! {
   }
   let body = node
     .child_by_field_name("body")
-    .or_error!(CParseError::MissingBody)
+    .or_error!(CParseError::Missing(source~, node~, "body"))
   { static_, name: [..name], type_, parameters, body }
 }
 

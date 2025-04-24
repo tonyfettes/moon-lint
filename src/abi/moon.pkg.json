@@ -3,6 +3,7 @@
     "tonyfettes/tree_sitter_c",
     "tonyfettes/tree_sitter",
     "tonyfettes/tree_sitter_moonbit",
-    "moonbitlang/x/fs"
+    "moonbitlang/x/fs",
+    "tonyfettes/encoding"
   ]
 }

@@ -1,6 +1,6 @@
 ///|
 enum Arguments {
-  C(pkg~ : String)
+  Abi(pkg~ : String)
   Lint(ruleset~ : String, source~ : String, apply~ : Bool)
 } derive(Show)
 
@@ -16,10 +16,10 @@ type! ArgumentsError {
 
 ///|
 fn Arguments::parse_c(args : ArrayView[String]) -> Arguments!ArgumentsError {
-  let command = "c"
+  let command = "abi"
   match args {
     [] => raise ArgumentsError::MissingArgument(command~)
-    [pkg] => Arguments::C(pkg~)
+    [pkg] => Arguments::Abi(pkg~)
     [_, .. args] => raise ArgumentsError::ExtraArgument(command~, args)
   }
 }
@@ -58,7 +58,7 @@ fn Arguments::parse(args : Array[String]) -> Arguments!ArgumentsError {
   match args {
     [] => raise ArgumentsError::MissingExecName
     [_] => raise ArgumentsError::MissingCommand
-    [_, "c", .. args] => Arguments::parse_c!(args)
+    [_, "abi", .. args] => Arguments::parse_c!(args)
     [_, "lint", .. args] => Arguments::parse_lint!(args)
     [_, command, ..] => raise ArgumentsError::UnrecognizedCommand(command)
   }
@@ -70,7 +70,7 @@ fn main {
     let args = @sys.get_cli_args()
     let args = Arguments::parse!(args)
     match args {
-      C(pkg~) => @c.check_package!(pkg)
+      Abi(pkg~) => @abi.check_package!(pkg)
       Lint(ruleset~, source~, apply~) => {
         let ruleset = @fs.read_file_to_bytes!(ruleset)
         let edits = @lint.parse_rules!(ruleset)
